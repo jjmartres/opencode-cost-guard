@@ -1,0 +1,68 @@
+{
+  "name": "opencode-cost-guard",
+  "version": "1.0.0",
+  "description": "OpenCode plugin — monitors session cost and triggers warnings or stops when a configurable threshold is reached",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "cost",
+    "budget",
+    "spending-limit",
+    "ai",
+    "llm"
+  ],
+  "author": {
+    "name": "Jean-Jacques Martres",
+    "url": "https://github.com/jjmartres"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jjmartres/opencode-cost-guard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jjmartres/opencode-cost-guard/issues"
+  },
+  "homepage": "https://github.com/jjmartres/opencode-cost-guard#readme",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "npm@10.2.4",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:check": "tsc --noEmit",
+    "dev": "tsc --watch",
+    "clean": "node --run clean:dist",
+    "clean:dist": "rm -rf dist",
+    "prepublishOnly": "npm run build:check && npm run build",
+    "version:patch": "npm version patch",
+    "version:minor": "npm version minor",
+    "version:major": "npm version major"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=0.1.0"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "latest",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  }
+}

@@ -1,0 +1,22 @@
+# Source files (compiled output in dist/ is published)
+src/
+
+# TypeScript build artifacts
+*.tsbuildinfo
+tsconfig.json
+tsconfig*.json
+
+# Config examples (not needed by consumers)
+cost-guard.config.example.json
+
+# Development and CI tooling
+.github/
+.tool-versions
+.gitignore
+CONTRIBUTING.md
+Makefile
+
+# Editor and OS artifacts
+.DS_Store
+*.swp
+*.swo
