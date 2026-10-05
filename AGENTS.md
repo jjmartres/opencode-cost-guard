@@ -2,7 +2,7 @@
 
 ## What this repo is
 
-A single-file TypeScript OpenCode plugin (`src/index.ts`). The compiled output (`dist/`) is what gets published to npm. There are no tests, no linter config, and no second package.
+A TypeScript OpenCode plugin supporting V1 and V2. `src/index.ts` is the server entry, `src/tui.ts` is the TUI entry, and `src/shared.ts` holds configuration and alert tracking. The compiled output (`dist/`) is what gets published to npm. There are no tests, no linter config, and no second package.
 
 ---
 
@@ -42,7 +42,7 @@ There are no tests. `make check` catching type errors is the only automated qual
 
 ## Source of truth for defaults
 
-The canonical defaults live in `src/index.ts` in the `DEFAULTS` constant:
+The canonical defaults live in `src/shared.ts` in the `DEFAULTS` constant:
 
 ```typescript
 const DEFAULTS: CostGuardConfig = {

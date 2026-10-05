@@ -151,22 +151,27 @@ Point OpenCode at your local build instead of the npm package:
 ```jsonc
 // .opencode/opencode.json  (in a test project)
 {
-  "plugins": ["file:///absolute/path/to/opencode-cost-guard/dist/index.js"]
+  "plugins": ["/absolute/path/to/opencode-cost-guard/dist"]                   // V2: must be a directory
+  // "plugin": ["file:///absolute/path/to/opencode-cost-guard/dist/index.js"] // V1
 }
 ```
 
-Then open OpenCode in that project and check the startup log for:
+On V2 the directory loads both the server and TUI entries. On V1 the server entry posts alerts into the chat; its TUI entry does nothing. Then open OpenCode in that project and check the server startup log for:
 
 ```
 [cost-guard] Active — limit: $20.0000 | warn at: 80% | mode: warn
 ```
+
+To trigger alerts quickly, set a small positive `maxCostUsd` in `.opencode/cost-guard.config.json` and use a model that reports cost. Verify a warning and a limit alert after a turn. In V2 `block` mode, verify that the next prompt is rejected; on V1, block mode only sends the limit alert. V2 toasts require the TUI. A build or a fake-host check does not replace testing in a real OpenCode installation.
 
 ### Project structure
 
 ```
 opencode-cost-guard/
 ├── src/
-│   └── index.ts          ← single source file (plugin + config loader)
+│   ├── index.ts          ← V1 server alerts + V2 prompt blocking
+│   ├── tui.ts            ← V2 toast alerts + V1 no-op TUI entry
+│   └── shared.ts         ← config loader, thresholds + alert tracking
 ├── dist/                 ← compiled output (git-ignored, npm-published)
 ├── .github/
 │   ├── ISSUE_TEMPLATE/   ← bug & feature request templates

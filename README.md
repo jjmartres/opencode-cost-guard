@@ -1,6 +1,6 @@
 # opencode-cost-guard
 
-An [OpenCode](https://opencode.ai) plugin that monitors session cost in real time and fires a **warning** or **stop** message when a configurable spending threshold is reached.
+An [OpenCode](https://opencode.ai) plugin that checks session cost after each response and alerts you when a configurable spending threshold is reached — as a TUI toast on [OpenCode V2](https://opencode.ai/v2/docs/), as a chat message on OpenCode V1. On V2 it can also block further prompts once the limit is hit.
 
 > **Why?** OpenCode has no built-in per-session cost limit. This plugin fills that gap while a [native feature](https://github.com/sst/opencode/issues/4559) is still pending.
 
@@ -9,8 +9,10 @@ An [OpenCode](https://opencode.ai) plugin that monitors session cost in real tim
 ## Features
 
 - ⚠️ **Early warning** at a configurable percentage of the budget (e.g. 80%)
-- ⛔ **Limit alert** when the session cost exceeds the threshold
-- 🔇 **No spam** — each message fires at most once per session
+- ⛔ **Limit alert** when the session cost reaches or exceeds the threshold
+- 🛑 **Block mode (V2)** — rejects new prompts in a session once its limit is reached
+- 🔇 **No spam** — each alert fires at most once per session
+- 🤫 **Out of the model's context (V2)** — alerts are TUI toasts, never sent to the model
 - 🗂️ **Per-project config** — override the global limit for individual repositories
 - 🔌 **Zero friction** — install via npm, one line in `opencode.json`
 
@@ -18,13 +20,14 @@ An [OpenCode](https://opencode.ai) plugin that monitors session cost in real tim
 
 ## Installation
 
-Add the package name to the `plugins` array in your OpenCode config:
+Add the package name to your OpenCode config — `plugins` on OpenCode V2, `plugin` on V1:
 
 ```jsonc
 // ~/.config/opencode/opencode.json  (global)
 // or .opencode/opencode.json        (per-project)
 {
-  "plugins": ["opencode-cost-guard"]
+  "plugins": ["opencode-cost-guard"]   // OpenCode V2
+  // "plugin": ["opencode-cost-guard"] // OpenCode V1
 }
 ```
 
@@ -34,7 +37,7 @@ OpenCode resolves and installs the plugin from npm on startup.
 
 ## Configuration
 
-Create a config file — loaded once at plugin initialisation, no restart required.
+Create a config file. It is read when the plugin loads; reload the plugin or restart OpenCode after changing it.
 
 ### Global config
 
@@ -54,9 +57,9 @@ The file must be valid JSON — comments are stripped before parsing so `//` and
 
 | Key             | Type              | Default  | Description                                                    |
 | --------------- | ----------------- | -------- | -------------------------------------------------------------- |
-| `maxCostUsd`    | number            | `20.0`   | Cost limit in USD. Alert fires when this is exceeded.          |
+| `maxCostUsd`    | number (> 0)      | `20.0`   | Cost limit in USD. Alert fires when this is reached or exceeded. |
 | `warnAtPercent` | number (0 – 100)  | `80`     | Early warning threshold as a % of `maxCostUsd`. `0` to disable.|
-| `mode`          | `"warn"` \| `"block"` | `"warn"` | `warn` — injects a message. `block` — marks the session stopped. |
+| `mode`          | `"warn"` \| `"block"` | `"warn"` | `warn` — alerts only. `block` — also rejects new prompts after the limit (V2 only; alert-only on V1). |
 
 ```json
 {
@@ -72,44 +75,57 @@ If no config file is found, the built-in defaults above apply.
 
 ## How it works
 
-The plugin hooks into the `session.idle` event, which fires after every model response. It then:
+The package has two entry points, and each works on both hosts:
+
+| Entry | OpenCode V2 | OpenCode V1 |
+| ----- | ----------- | ----------- |
+| server (`.`) | In `block` mode, a prompt hook rejects new prompts once the session's cost has reached the limit | After each response, posts the warning or limit alert into the chat |
+| TUI (`./tui`) | After each turn, shows the warning or limit alert as a toast | No-op |
+
+After each turn — `session.execution.succeeded`, `.failed` or `.interrupted` on V2, `session.idle` on V1 — the plugin:
 
 1. Reads the session ID from the event payload
-2. Fetches the current cumulative cost via the OpenCode SDK
+2. Gets the cumulative session cost — V2 reports it directly; on V1 the plugin sums the cost of the session's assistant messages
 3. Compares it against the configured thresholds
-4. Injects a formatted warning or stop message into the chat if needed
-
-Because it acts **after** each response (not before), it cannot intercept a request mid-flight — the limit is enforced reactively.
+4. Shows the alert (V2: TUI toast; V1: chat message that doesn't trigger a model response)
 
 ```
-User prompt → Model response → session.idle → cost-guard checks → ⚠️ or ⛔ if needed
+User prompt → Model response → end of turn → cost-guard checks → ⚠️ or ⛔ if needed
 ```
+
+Alerts arrive **after** a response: an in-flight response can exceed the limit.
+
+On V2, alerts are TUI toasts rather than session messages because V2 only offers *synthetic* session messages, which wait until the next prompt and are then sent to the model. Other V2 clients (`opencode run`, the web and desktop apps) don't load TUI plugins, so they show no alerts; `block` mode is enforced on the server and still applies to them.
+
+In `block` mode, the prompt hook reads the session's stored cost, so blocking survives restarts. If that lookup fails, the prompt is allowed rather than locking you out. V2 has no typed prompt-rejection API, so a blocked prompt shows up as a generic error (in the TUI: *Failed to send prompt — UnexpectedStatus: 500*); the limit toast shown after the previous turn explains why. V1 has no way for a plugin to reject a prompt, so `block` mode there sends the limit alert only.
 
 ### Deduplication
 
-Two in-memory `Set` objects track which sessions have already received a warning or been blocked. Each message fires **at most once per session**, regardless of how many subsequent responses occur.
+Each alert fires **at most once per session** while OpenCode is running. The state is in memory, so after a restart an existing session can be alerted again.
+
+An alert is recorded only after delivery succeeds. If delivery fails, a later cost check can retry it. On V2, only sessions in the plugin's project directory use that project's configuration.
 
 ---
 
 ## Startup log
 
-The plugin always prints one line at startup confirming the active configuration:
+The server entry always prints one line at startup confirming the active configuration:
 
 ```
 [cost-guard] Active — limit: $20.0000 | warn at: 80% | mode: warn
 ```
 
-That is the only log line produced during normal operation. Warnings and errors always print regardless.
+That is the only log line produced during normal operation. Warnings and errors always print regardless. On V2 these lines go to the OpenCode server's log (for example `opencode serve --print-logs`), not the TUI. The TUI entry never writes to the console; if it can't read the config file, it shows a toast instead.
 
 ### Debug logging
 
-Set `COST_GUARD_DEBUG=1` to enable verbose per-event logs — useful when diagnosing why a threshold isn't firing:
+Set `COST_GUARD_DEBUG=1` to enable verbose server logs — useful when diagnosing why a threshold isn't firing:
 
 ```
-[cost-guard] Active — limit: $2.0000 | warn at: 80% | mode: warn | debug: on
+[cost-guard] Active — limit: $20.0000 | warn at: 80% | mode: warn | debug: on
 [cost-guard] Config loaded from: /Users/you/.config/opencode/cost-guard.config.json
 [cost-guard] session.idle received — sessionId: abc123
-[cost-guard] session abc123 — messages: 4, cost: $1.6400, limit: $2.0000
+[cost-guard] session abc123 — cost: $16.4000, limit: $20.0000
 ```
 
 To set the variable for an OpenCode session launched from the terminal:
@@ -120,7 +136,32 @@ COST_GUARD_DEBUG=1 opencode
 
 ---
 
-## Example messages
+## Example alerts
+
+### OpenCode V2 — TUI toasts
+
+**Early warning** (warning toast)
+
+```
+Cost warning
+$16.4000 of $20.0000 (82%) used. Remaining: $3.6000.
+```
+
+**Limit reached — `warn` mode** (error toast)
+
+```
+Cost limit reached
+$20.0031 of $20.0000 (100%). Consider starting a new session.
+```
+
+**Limit reached — `block` mode** (error toast)
+
+```
+Cost limit reached — prompts blocked
+$20.0031 of $20.0000 (100%). New prompts in this session will be rejected; start a new session to continue.
+```
+
+### OpenCode V1 — chat messages
 
 **Early warning (at 80% of budget)**
 
@@ -141,10 +182,10 @@ update "maxCostUsd" in cost-guard.config.json.
 **Limit reached — `block` mode**
 
 ```
-⛔ **COST LIMIT REACHED** — Session automatically stopped.
+⛔ **COST LIMIT REACHED** — Stop using this session.
 Cost: $20.0031 / Limit: $20.0000 (100%)
 
-This session will no longer respond to new requests.
+Prompt blocking requires OpenCode V2; on V1 this is an alert only.
 Start a new session to continue working.
 ```
 
@@ -172,18 +213,23 @@ Point OpenCode at your local build instead of the npm package:
 ```jsonc
 // .opencode/opencode.json  (in a test project)
 {
-  "plugins": ["file:///absolute/path/to/opencode-cost-guard/dist/index.js"]
+  "plugins": ["/absolute/path/to/opencode-cost-guard/dist"]                   // V2: must be a directory
+  // "plugin": ["file:///absolute/path/to/opencode-cost-guard/dist/index.js"] // V1
 }
 ```
 
-Then open OpenCode in that project and verify the startup log appears.
+On V2 the directory entry loads both `dist/index.js` (server) and `dist/tui.js` (TUI). Then open OpenCode in that project and verify the startup log appears. To trigger alerts quickly, set a tiny `maxCostUsd` in the project's `cost-guard.config.json` and use a model that reports cost — subscription models report $0, so they never cross a threshold.
 
 ---
 
 ## Known limitations
 
 - The limit is **reactive**, not preventive. A single expensive response can push the cost over the threshold before the plugin fires.
-- The in-memory session state is reset when OpenCode restarts. A session that was already warned or blocked will be treated as fresh after a restart.
+- In-memory alert state is reset when OpenCode restarts, so an existing session may be alerted again. On V2, `block` mode still checks the stored cost before admitting new prompts.
+- On V2, alerts appear only in the TUI; `opencode run` and the web and desktop apps get `block` mode but no alerts.
+- On V2, a blocked prompt shows a generic error rather than the reason.
+- On V1, `block` mode cannot reject prompts; it sends the limit alert only.
+- Models billed by subscription report a cost of $0, so they never trigger alerts.
 - For a hard preventive limit, consider routing through a gateway like [Portkey](https://portkey.ai) which supports budget enforcement at the API level.
 
 ---
